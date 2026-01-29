@@ -99,7 +99,7 @@ jobs:
       if: startsWith(matrix.os_python.os, 'macos')
       working-directory: apache-beam-source
       run: |
-        sed -i.bak 's/distlib==0.3.7/distlib>=0.3.7,<1.0.0/g' pyproject.toml
+        sed -i.bak 's/distlib==0\.3\.[0-9]*/distlib>=0.3.7,<1.0.0/g' pyproject.toml
     - name: Build wheel
       working-directory: apache-beam-source
       env:
