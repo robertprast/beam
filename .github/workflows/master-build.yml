@@ -1,0 +1,50 @@
+name: Master Build
+
+on:
+  push:
+    branches: ['master']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+
+    - name: Restore tox cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          sdks/python/target/.tox
+        key: tox-${{ runner.os }}-py39-${{ hashFiles('sdks/python/tox.ini') }}-${{ hashFiles('sdks/python/setup.py') }}
+        restore-keys: |
+          tox-${{ runner.os }}-py39-
+
+    - name: Run build
+      run: |
+        echo "=== Master Build ==="
+        echo "Checking for cache poison markers..."
+        if [ -f "sdks/python/target/.tox/py39/lib/python3.9/site-packages/sitecustomize.py" ]; then
+          echo "🚨 POISONED CACHE DETECTED!"
+          echo "Contents of sitecustomize.py:"
+          cat sdks/python/target/.tox/py39/lib/python3.9/site-packages/sitecustomize.py
+          echo ""
+          echo "Executing Python (which loads sitecustomize.py)..."
+          PYTHONPATH="sdks/python/target/.tox/py39/lib/python3.9/site-packages:$PYTHONPATH" python3 -c "print('Python executed with poisoned sitecustomize')"
+          if [ -f /tmp/cache-poison-marker ]; then
+            echo "🚨🚨🚨 CACHE POISON MARKER FOUND 🚨🚨🚨"
+            cat /tmp/cache-poison-marker
+          fi
+        else
+          echo "✅ No poison detected in cache"
+        fi
+        echo "Build complete."
