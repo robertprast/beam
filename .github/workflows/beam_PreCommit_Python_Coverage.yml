@@ -32,6 +32,21 @@ jobs:
         comment_phrase: 'Run Python_Coverage PreCommit'
         github_token: ${{ secrets.GITHUB_TOKEN }}
         github_job: "PreCommit Python Coverage"
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+
+    - name: Restore/Save tox cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          sdks/python/target/.tox
+        key: tox-${{ runner.os }}-py39-${{ hashFiles('sdks/python/tox.ini') }}-${{ hashFiles('sdks/python/setup.py') }}
+        restore-keys: |
+          tox-${{ runner.os }}-py39-
+
     - name: Run build
       env:
         GH_TOKEN_FOR_DISPATCH: ${{ secrets.GITHUB_TOKEN }}
