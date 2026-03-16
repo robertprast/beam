@@ -16,7 +16,7 @@
 name: PreCommit Python Formatter
 on:
   pull_request_target:
-    branches: [ "master", "release-*" ]
+    branches: [ "master", "release-*", "anthropic-*" ]
     paths: [ "sdks/python/**", 'release/trigger_all_tests.json', '.github/trigger_files/beam_PreCommit_PythonFormatter.json']
   issue_comment:
     types: [created]

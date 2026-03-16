@@ -45,7 +45,7 @@ jobs:
   check_env_variables:
     timeout-minutes: 5
     name: "Check environment variables"
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     env:
       EVENT_NAME: ${{ github.event_name }}
       # Keep in sync with py_version matrix value below - if changed, change that as well.
@@ -81,7 +81,7 @@ jobs:
           echo "py-versions-full=$PY_VERSIONS_FULL" >> $GITHUB_OUTPUT
 
   build_source:
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     name: Build python source distribution
     outputs:
       is_rc: ${{ steps.is_rc.outputs.is_rc }}
@@ -187,7 +187,7 @@ jobs:
     needs:
       - build_source
       - check_env_variables
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     if: needs.check_env_variables.outputs.gcp-variables-set == 'true' && github.event_name != 'pull_request'
     steps:
       - name: Remove existing files on GCS bucket
@@ -198,7 +198,7 @@ jobs:
     needs:
       - prepare_gcs
       - check_env_variables
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     if: needs.check_env_variables.outputs.gcp-variables-set == 'true'
     steps:
       - name: Download compressed sources from artifacts
@@ -310,7 +310,7 @@ jobs:
     needs:
       - build_wheels
       - check_env_variables
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     if: needs.check_env_variables.outputs.gcp-variables-set == 'true' && github.event_name != 'pull_request'
     steps:
     - name: Download wheels from artifacts
@@ -347,7 +347,7 @@ jobs:
     needs:
      - upload_wheels_to_gcs
      - check_env_variables
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     if: needs.check_env_variables.outputs.gcp-variables-set == 'true' && github.event_name != 'pull_request'
     steps:
     - name: List file on Google Cloud Storage Bucket
@@ -360,7 +360,7 @@ jobs:
     needs:
       - build_source
       - build_wheels
-    runs-on: [self-hosted, ubuntu-20.04, main]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     if: github.repository_owner == 'apache' && github.event_name == 'schedule'
     steps:
